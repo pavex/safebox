@@ -29,41 +29,41 @@ after(async () => {
 
 
 test('create, set, list, get, delete and info', async () => {
-    let result = await run(['create', file, '--profile', 'standard'])
+    let result = await run([file, 'create', '--profile', 'standard'])
     assert.equal(result.code, 0, result.stderr)
     assert.match(result.stderr, /Created/)
 
-    result = await run(['set', file, 'API_KEY'], { input: 'key-123\n' })
+    result = await run([file, 'set', 'API_KEY'], { input: 'key-123\n' })
     assert.equal(result.code, 0, result.stderr)
     assert.match(result.stderr, /Added API_KEY/)
 
     const pem = '-----BEGIN KEY-----\nabc\n-----END KEY-----\n'
     await writeFile(join(directory, 'key.pem'), pem)
-    result = await run(['set', file, 'TLS_KEY', '--from-file', join(directory, 'key.pem')])
+    result = await run([file, 'set', 'TLS_KEY', '--from-file', join(directory, 'key.pem')])
     assert.equal(result.code, 0, result.stderr)
 
-    result = await run(['set', file, 'API_KEY'], { input: 'key-456' })
+    result = await run([file, 'set', 'API_KEY'], { input: 'key-456' })
     assert.match(result.stderr, /Updated API_KEY/)
 
-    result = await run(['list', file])
+    result = await run([file, 'list'])
     assert.equal(result.stdout, 'API_KEY\nTLS_KEY\n')
 
-    result = await run(['get', file, 'API_KEY'])
+    result = await run([file, 'get', 'API_KEY'])
     assert.equal(result.code, 0, result.stderr)
     assert.equal(result.stdout, 'key-456')
 
-    result = await run(['get', file, 'TLS_KEY'])
+    result = await run([file, 'get', 'TLS_KEY'])
     assert.equal(result.stdout, pem)
 
-    result = await run(['delete', file, 'TLS_KEY'])
+    result = await run([file, 'delete', 'TLS_KEY'])
     assert.equal(result.code, 0, result.stderr)
-    assert.equal((await run(['list', file])).stdout, 'API_KEY\n')
+    assert.equal((await run([file, 'list'])).stdout, 'API_KEY\n')
 
-    result = await run(['delete', file, 'TLS_KEY'])
+    result = await run([file, 'delete', 'TLS_KEY'])
     assert.equal(result.code, 1)
     assert.match(result.stderr, /No secret named TLS_KEY/)
 
-    result = await run(['info', file], { env: {} })
+    result = await run([file, 'info'], { env: {} })
     assert.equal(result.code, 0, result.stderr)
     assert.match(result.stdout, /kdf: scrypt N=65536 r=8 p=1 \(standard\)/)
 })
@@ -71,8 +71,8 @@ test('create, set, list, get, delete and info', async () => {
 
 test('the file never contains a value in plain text', async () => {
     const plain = join(directory, 'plain.safebox')
-    await run(['create', plain, '--profile', 'standard'])
-    await run(['set', plain, 'MARKER'], { input: 'very-recognizable-marker' })
+    await run([plain, 'create', '--profile', 'standard'])
+    await run([plain, 'set', 'MARKER'], { input: 'very-recognizable-marker' })
     const data = await readFile(plain)
     assert.equal(data.includes('very-recognizable-marker'), false)
     assert.equal(data.includes('MARKER'), false)
@@ -81,18 +81,18 @@ test('the file never contains a value in plain text', async () => {
 
 test('create refuses to replace a file without --force', async () => {
     const existing = join(directory, 'existing.safebox')
-    await run(['create', existing, '--profile', 'standard'])
-    let result = await run(['create', existing, '--profile', 'standard'])
+    await run([existing, 'create', '--profile', 'standard'])
+    let result = await run([existing, 'create', '--profile', 'standard'])
     assert.equal(result.code, 1)
     assert.match(result.stderr, /already exists/)
-    result = await run(['create', existing, '--profile', 'standard', '--force'])
+    result = await run([existing, 'create', '--profile', 'standard', '--force'])
     assert.equal(result.code, 0, result.stderr)
 })
 
 
 test('a wrong password fails without changing the file', async () => {
     const before = await readFile(file)
-    const result = await run(['set', file, 'OTHER'], { input: 'x', env: { SAFEBOX_PASSWORD: 'wrong' } })
+    const result = await run([file, 'set', 'OTHER'], { input: 'x', env: { SAFEBOX_PASSWORD: 'wrong' } })
     assert.equal(result.code, 1)
     assert.match(result.stderr, /wrong password/)
     assert.deepEqual(await readFile(file), before)
@@ -102,7 +102,7 @@ test('a wrong password fails without changing the file', async () => {
 test('--password-file takes the first line and wins over the variable', async () => {
     const passwordFile = join(directory, 'password.txt')
     await writeFile(passwordFile, `${PASSWORD}\r\nsecond line\n`)
-    const result = await run(['list', file, '--password-file', passwordFile], { env: { SAFEBOX_PASSWORD: 'wrong' } })
+    const result = await run([file, 'list', '--password-file', passwordFile], { env: { SAFEBOX_PASSWORD: 'wrong' } })
     assert.equal(result.code, 0, result.stderr)
     assert.equal(result.stdout, 'API_KEY\n')
 })
@@ -110,50 +110,61 @@ test('--password-file takes the first line and wins over the variable', async ()
 
 test('passwd changes the password and can change the profile', async () => {
     const box = join(directory, 'passwd.safebox')
-    await run(['create', box, '--profile', 'standard'])
-    await run(['set', box, 'A'], { input: '1' })
-    let result = await run(['passwd', box, '--profile', 'recommended'], { env: { SAFEBOX_PASSWORD: PASSWORD, SAFEBOX_NEW_PASSWORD: 'second password 2' } })
+    await run([box, 'create', '--profile', 'standard'])
+    await run([box, 'set', 'A'], { input: '1' })
+    let result = await run([box, 'passwd', '--profile', 'recommended'], { env: { SAFEBOX_PASSWORD: PASSWORD, SAFEBOX_NEW_PASSWORD: 'second password 2' } })
     assert.equal(result.code, 0, result.stderr)
-    assert.equal((await run(['list', box])).code, 1)
-    result = await run(['get', box, 'A'], { env: { SAFEBOX_PASSWORD: 'second password 2' } })
+    assert.equal((await run([box, 'list'])).code, 1)
+    result = await run([box, 'get', 'A'], { env: { SAFEBOX_PASSWORD: 'second password 2' } })
     assert.equal(result.stdout, '1')
-    assert.match((await run(['info', box])).stdout, /\(recommended\)/)
+    assert.match((await run([box, 'info'])).stdout, /\(recommended\)/)
 })
 
 
 test('without any password source it explains what to do', async () => {
-    const result = await run(['list', file], { env: { SAFEBOX_PASSWORD: '' } })
+    const result = await run([file, 'list'], { env: { SAFEBOX_PASSWORD: '' } })
     assert.equal(result.code, 1)
     assert.match(result.stderr, /No password: run in a terminal, or use --password-file or SAFEBOX_PASSWORD/)
 })
 
 
 test('a short password gets a warning', async () => {
-    const result = await run(['create', join(directory, 'short.safebox'), '--profile', 'standard'], { env: { SAFEBOX_PASSWORD: 'short' } })
+    const result = await run([join(directory, 'short.safebox'), 'create', '--profile', 'standard'], { env: { SAFEBOX_PASSWORD: 'short' } })
     assert.equal(result.code, 0, result.stderr)
     assert.match(result.stderr, /shorter than 12/)
 })
 
 
 test('usage errors exit with code 2', async () => {
-    for (const args of [[], ['frobnicate', file], ['get', file], ['list', file, '--force'], ['list', file, '--bogus']]) {
+    for (const args of [[], [file], [file, 'frobnicate'], [file, 'get'], [file, 'list', 'extra'], [file, 'list', '--force'], [file, 'list', '--bogus']]) {
         const result = await run(args)
         assert.equal(result.code, 2, `${args.join(' ')}: ${result.stderr}`)
     }
+    assert.match((await run([file, 'get'])).stderr, /Usage: safebox .+ get <NAME>/)
     assert.equal((await run(['--help'])).code, 0)
+    assert.equal((await run(['help'])).code, 0)
     assert.match((await run(['--version'])).stdout, /^\d+\.\d+\.\d+/)
 })
 
 
+test('the help shows the file first and explains the password', async () => {
+    const help = (await run(['--help'])).stdout
+    assert.match(help, /safebox <file> create/)
+    assert.match(help, /safebox <file> set <NAME>/)
+    assert.match(help, /The safebox password:/)
+    assert.match(help, /SAFEBOX_PASSWORD/)
+})
+
+
 test('invalid names, unknown profiles and missing files are reported', async () => {
-    let result = await run(['set', file, '1BAD'], { input: 'x' })
+    let result = await run([file, 'set', '1BAD'], { input: 'x' })
     assert.equal(result.code, 1)
     assert.match(result.stderr, /Invalid secret name/)
-    result = await run(['create', join(directory, 'p.safebox'), '--profile', 'weak'])
+    result = await run([join(directory, 'p.safebox'), 'create', '--profile', 'weak'])
     assert.match(result.stderr, /Unknown profile "weak"/)
-    result = await run(['list', join(directory, 'nope.safebox')])
+    result = await run([join(directory, 'nope.safebox'), 'list'])
     assert.match(result.stderr, /does not exist/)
-    result = await run(['get', file, 'MISSING'])
+    result = await run([file, 'get', 'MISSING'])
     assert.match(result.stderr, /No secret named MISSING/)
 })
 

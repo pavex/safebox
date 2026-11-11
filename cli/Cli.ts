@@ -33,7 +33,7 @@ interface Command {
     // Names of the positional arguments after the command name.
     args: string[]
     options: Option[]
-    run(args: string[]): Promise<void>
+    run(file: string, args: string[]): Promise<void>
 }
 
 
@@ -42,7 +42,7 @@ export class Cli {
 
     private version: string
     private values: Partial<Record<Option, string | boolean>> = {}
-    private passwords = new Passwords()
+    private passwords!: Passwords
 
 
     constructor(version: string) {
@@ -58,15 +58,15 @@ export class Cli {
                 process.stdout.write(`${this.version}\n`)
                 return ExitCode.Success
             }
-            const [name, ...args] = positionals
-            if (values.help || name === undefined || name === 'help') {
+            const [file, name, ...args] = positionals
+            if (values.help || file === undefined || file === 'help') {
                 process.stdout.write(USAGE)
-                return name === undefined && !values.help ? ExitCode.Usage : ExitCode.Success
+                return file === undefined && !values.help ? ExitCode.Usage : ExitCode.Success
             }
-            const command = this.command(name, args, Object.keys(values))
+            const command = this.command(file, name, args, Object.keys(values))
             this.values = values
-            this.passwords = new Passwords(values['password-file'], values['new-password-file'])
-            await command.run(args)
+            this.passwords = new Passwords(file, values['password-file'], values['new-password-file'])
+            await command.run(file, args)
             return ExitCode.Success
         }
         catch (error) {
@@ -77,15 +77,19 @@ export class Cli {
     }
 
 
-    // Finds the command and checks its arguments and options.
-    private command(name: string, args: string[], options: string[]): Command {
+    // Finds the command (safebox <file> <command>) and checks its arguments and options.
+    private command(file: string, name: string | undefined, args: string[], options: string[]): Command {
         const commands = this.commands()
+        if (name === undefined) {
+            throw new CliError(`What to do with ${file}? Run safebox --help.`, ExitCode.Usage)
+        }
         if (!Object.hasOwn(commands, name)) {
             throw new CliError(`Unknown command "${name}". Run safebox --help.`, ExitCode.Usage)
         }
         const command = commands[name]
         if (args.length !== command.args.length) {
-            throw new CliError(`Usage: safebox ${name} ${command.args.map(arg => `<${arg}>`).join(' ')}`, ExitCode.Usage)
+            const usage = ['safebox', file, name, ...command.args.map(arg => `<${arg}>`)].join(' ')
+            throw new CliError(`Usage: ${usage}`, ExitCode.Usage)
         }
         for (const option of options) {
             if (option !== 'help' && option !== 'version' && !command.options.includes(option as Option)) {
@@ -98,13 +102,13 @@ export class Cli {
 
     private commands(): Record<string, Command> {
         return {
-            create: { args: ['file'], options: ['profile', 'force', 'password-file'], run: ([file]) => this.create(file) },
-            info: { args: ['file'], options: [], run: ([file]) => this.info(file) },
-            list: { args: ['file'], options: ['password-file'], run: ([file]) => this.list(file) },
-            get: { args: ['file', 'NAME'], options: ['password-file'], run: ([file, name]) => this.get(file, name) },
-            set: { args: ['file', 'NAME'], options: ['from-file', 'password-file'], run: ([file, name]) => this.set(file, name) },
-            delete: { args: ['file', 'NAME'], options: ['password-file'], run: ([file, name]) => this.delete(file, name) },
-            passwd: { args: ['file'], options: ['profile', 'password-file', 'new-password-file'], run: ([file]) => this.passwd(file) }
+            create: { args: [], options: ['profile', 'force', 'password-file'], run: file => this.create(file) },
+            set: { args: ['NAME'], options: ['from-file', 'password-file'], run: (file, [name]) => this.set(file, name) },
+            get: { args: ['NAME'], options: ['password-file'], run: (file, [name]) => this.get(file, name) },
+            list: { args: [], options: ['password-file'], run: file => this.list(file) },
+            delete: { args: ['NAME'], options: ['password-file'], run: (file, [name]) => this.delete(file, name) },
+            passwd: { args: [], options: ['profile', 'password-file', 'new-password-file'], run: file => this.passwd(file) },
+            info: { args: [], options: [], run: file => this.info(file) }
         }
     }
 
@@ -177,7 +181,7 @@ export class Cli {
 
     private async load(file: string): Promise<SafeboxFile> {
         if (!await exists(file)) {
-            throw new CliError(`${file} does not exist; create it with: safebox create ${file}`)
+            throw new CliError(`${file} does not exist; create it with: safebox ${file} create`)
         }
         return new SafeboxFile(file).load(await this.passwords.current())
     }
@@ -195,7 +199,7 @@ export class Cli {
         if (!canPrompt()) {
             throw new CliError('No value: pipe it in, use --from-file, or run in a terminal.')
         }
-        const value = await promptHidden(`Value of ${name}: `)
+        const value = await promptHidden(`Value of ${name} (hidden): `)
         if (value === '') {
             throw new CliError('The value cannot be empty; use --from-file for an empty value.')
         }

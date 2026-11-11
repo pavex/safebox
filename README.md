@@ -47,10 +47,21 @@ form work.
 
 ## Working with a safebox file
 
+Every command starts with the safebox file, then says what to do with it:
+
+```text
+safebox <file> <command> [NAME] [options]
+```
+
+`safebox --help` lists the commands. When the safebox password is needed, the
+CLI asks `Safebox password for app.safebox:`; a new one is asked as
+`New safebox password for app.safebox:` and then once more to confirm.
+Nothing you type is shown.
+
 ### Create one
 
 ```bash
-safebox create app.safebox
+safebox app.safebox create
 ```
 
 Asks for a new password twice. A password shorter than 12 characters gets a
@@ -64,9 +75,9 @@ most uses.
 ### Add or change a secret
 
 ```bash
-safebox set app.safebox IMAP_PASSWORD                  # asks for the password, then the value (hidden)
-safebox set app.safebox TLS_KEY --from-file key.pem    # the whole file as is
-echo "sk-123" | safebox set app.safebox API_KEY        # from a pipe, one trailing newline removed
+safebox app.safebox set IMAP_PASSWORD                  # asks for the password, then the value (hidden)
+safebox app.safebox set TLS_KEY --from-file key.pem    # the whole file as is
+echo "sk-123" | safebox app.safebox set API_KEY        # from a pipe, one trailing newline removed
 ```
 
 `set` adds a new secret or replaces an existing one and says which. The
@@ -79,29 +90,29 @@ Names are letters, digits and `_`, not starting with a digit (`API_KEY`,
 ### Look inside
 
 ```bash
-safebox list app.safebox             # names, one per line
-safebox get app.safebox API_KEY      # the value, to stdout
-safebox info app.safebox             # format and key derivation; no password needed
+safebox app.safebox list             # names, one per line
+safebox app.safebox get API_KEY      # the value, to stdout
+safebox app.safebox info             # format and key derivation; no password needed
 ```
 
 `get` prints the secret in plain text: mind your terminal history, logs and
 redirection. In a script it can feed a variable directly:
 
 ```bash
-export API_KEY="$(safebox get app.safebox API_KEY)"
+export API_KEY="$(safebox app.safebox get API_KEY)"
 ```
 
 ### Delete a secret
 
 ```bash
-safebox delete app.safebox API_KEY
+safebox app.safebox delete API_KEY
 ```
 
 ### Change the password
 
 ```bash
-safebox passwd app.safebox
-safebox passwd app.safebox --profile high    # and a stronger key derivation
+safebox app.safebox passwd
+safebox app.safebox passwd --profile high    # and a stronger key derivation
 ```
 
 Asks for the current password, then the new one twice. The file is
