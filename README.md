@@ -366,17 +366,26 @@ cli/                         the CLI, an app on top of the library, bundled to d
   Cli/CliError.ts            error with an exit code
   Cli/Usage.ts               text of --help
   types/ExitCode.ts          exit codes
-test/                        unit tests (test/unit) and CLI tests (test/cli.test.mjs)
+test/
+  library/                   the library: file, storage, state, encryption, secrets
+  cli/                       the built CLI run as a process; the hidden prompt
+  structure.test.ts          the boundaries below
+  support/                   shared helpers; register.mjs runs .ts tests directly
 ```
 
 `src/` stands alone: it imports only Node.js built-ins and its own files, so
 copying it gives exactly the library. `cli/` uses the library only through
-`src/index.ts`, like any other app. `test/unit/structure.test.ts` checks both.
+`src/index.ts`, like any other app. `test/structure.test.ts` checks both.
+
+The tests are TypeScript and run straight from `test/`, without a build of
+their own: `test/support/register.mjs` lets Node load `.ts` files through
+esbuild. The CLI tests run the real `dist/safebox.js`.
 
 While working on the code, keep the dev dependencies installed (`npm install`):
 
 ```bash
-npm test          # typecheck, build, unit tests and CLI tests
+npm test          # typecheck, build dist/safebox.js, all tests
+npm run test:run  # all tests without building (the CLI tests use the last build)
 npm run style     # code style, --check only reports
 ```
 

@@ -6,7 +6,7 @@ import { ExitCode } from './types/ExitCode'
 import { CliError } from './Cli/CliError'
 import { Passwords } from './Cli/Passwords'
 import { canPrompt, promptHidden, readStdin } from './Cli/Prompt'
-import { USAGE } from './Cli/Usage'
+import { usage } from './Cli/Usage'
 
 
 // Command line front end of the library; it uses only the public API in
@@ -41,12 +41,15 @@ interface Command {
 export class Cli {
 
     private version: string
+    private copyright: string
     private values: Partial<Record<Option, string | boolean>> = {}
     private passwords!: Passwords
 
 
-    constructor(version: string) {
+    /** Takes the version and the copyright line shown by --help and --version. */
+    constructor(version: string, copyright: string) {
         this.version = version
+        this.copyright = copyright
     }
 
 
@@ -55,12 +58,12 @@ export class Cli {
         try {
             const { values, positionals } = parse(argv)
             if (values.version) {
-                process.stdout.write(`${this.version}\n`)
+                process.stdout.write(`safebox ${this.version}\n${this.copyright}\n`)
                 return ExitCode.Success
             }
             const [file, name, ...args] = positionals
             if (values.help || file === undefined || file === 'help') {
-                process.stdout.write(USAGE)
+                process.stdout.write(usage(this.version, this.copyright))
                 return file === undefined && !values.help ? ExitCode.Usage : ExitCode.Success
             }
             const command = this.command(file, name, args, Object.keys(values))

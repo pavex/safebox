@@ -12,7 +12,7 @@ echo "[3/4] Running tests..."
 npm run test:run
 
 echo "[4/4] Cleaning up node_modules..."
-rm -rf node_modules package-lock.json dist-test
+rm -rf node_modules package-lock.json
 
 echo ""
 echo "Done! dist/ is self-contained:"

@@ -1,5 +1,7 @@
 /** Text of safebox --help. */
-export const USAGE = `safebox - one encrypted file with named secrets
+export function usage(version: string, copyright: string): string {
+    return `safebox ${version} - one encrypted file with named secrets
+${copyright}
 
 Usage:
   safebox <file> create [--profile standard|recommended|high] [--force]
@@ -31,3 +33,4 @@ The value for set:
 Secret names: letters, digits and _, not starting with a digit.
 get prints the value: mind terminal history, logs and redirection.
 `
+}

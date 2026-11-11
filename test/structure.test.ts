@@ -6,8 +6,7 @@ import { test } from 'node:test'
 
 // Guards the layout: src/ is the library people copy into their apps, so it
 // must stand alone; cli/ is an app on top of it and may use only its public
-// API. Neither may depend on npm packages. Bundled to dist-test/, so the
-// project root is one level up.
+// API. Neither may depend on npm packages.
 
 const ROOT = resolve(import.meta.dirname, '..')
 const SRC = join(ROOT, 'src')
@@ -37,6 +36,12 @@ test('cli/ imports from src/ only its public index', () => {
             assert.ok(target === SRC || target === SRC_INDEX, `${file} imports ${specifier}; import from src/index instead`)
         }
     }
+})
+
+
+test('tests run from test/ directly, the build makes only dist/', () => {
+    const build = readFileSync(join(ROOT, 'esbuild.config.mjs'), 'utf8')
+    assert.doesNotMatch(build, /dist-test|\.test\.ts/)
 })
 
 

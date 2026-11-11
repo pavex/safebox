@@ -2,6 +2,7 @@
   "name": "pavex-safebox",
   "version": "0.1.0-beta.1",
   "description": "One encrypted file with named secrets for Node.js apps, plus a CLI to manage it. No runtime dependencies.",
+  "author": "Pavex",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -23,7 +24,7 @@
     "build": "npm run typecheck && node esbuild.config.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && npm run test:run",
-    "test:run": "node --test test/*.test.mjs dist-test/*.test.mjs",
+    "test:run": "node --import ./test/support/register.mjs --test \"test/**/*.test.ts\"",
     "style": "node scripts/restyle.mjs"
   },
   "devDependencies": {

@@ -15,7 +15,6 @@ if errorlevel 1 goto :fail
 echo [4/4] Cleaning up node_modules...
 if exist node_modules rd /s /q node_modules
 if exist package-lock.json del /f /q package-lock.json
-if exist dist-test rd /s /q dist-test
 
 echo.
 echo Done! dist/ is self-contained:

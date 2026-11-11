@@ -1,6 +1,6 @@
-// Runs the bundled dist/safebox.js as a separate process, the way people use it.
-// Passwords come from SAFEBOX_PASSWORD or --password-file: a piped process has
-// no terminal for the hidden prompt.
+// Runs the bundled dist/safebox.js as a separate process, the way people use it
+// (npm test builds it first). Passwords come from SAFEBOX_PASSWORD or
+// --password-file: a piped process has no terminal for the hidden prompt.
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path'
 import { after, before, test } from 'node:test'
 
 
-const CLI = resolve(import.meta.dirname, '..', 'dist', 'safebox.js')
+const CLI = resolve(import.meta.dirname, '..', '..', 'dist', 'safebox.js')
 const PASSWORD = 'cli test password 1'
 
 let directory = ''
@@ -143,12 +143,13 @@ test('usage errors exit with code 2', async () => {
     assert.match((await run([file, 'get'])).stderr, /Usage: safebox .+ get <NAME>/)
     assert.equal((await run(['--help'])).code, 0)
     assert.equal((await run(['help'])).code, 0)
-    assert.match((await run(['--version'])).stdout, /^\d+\.\d+\.\d+/)
+    assert.match((await run(['--version'])).stdout, /^safebox \d+\.\d+\.\d+.*\n\(c\) \d{4} Pavex, MIT license\n$/)
 })
 
 
 test('the help shows the file first and explains the password', async () => {
     const help = (await run(['--help'])).stdout
+    assert.match(help, /^safebox \d+\.\d+\.\d+\S* - one encrypted file with named secrets\n\(c\) \d{4} Pavex, MIT license\n/)
     assert.match(help, /safebox <file> create/)
     assert.match(help, /safebox <file> set <NAME>/)
     assert.match(help, /The safebox password:/)
@@ -169,7 +170,22 @@ test('invalid names, unknown profiles and missing files are reported', async () 
 })
 
 
-function run(args, { input = '', env = { SAFEBOX_PASSWORD: PASSWORD } } = {}) {
+interface RunOptions {
+    // Text piped to stdin.
+    input?: string
+    // Variables on top of the current environment; SAFEBOX_* are cleared first.
+    env?: Record<string, string>
+}
+
+
+interface RunResult {
+    code: number | null
+    stdout: string
+    stderr: string
+}
+
+
+function run(args: string[], { input = '', env = { SAFEBOX_PASSWORD: PASSWORD } }: RunOptions = {}): Promise<RunResult> {
     return new Promise((done, fail) => {
         const child = spawn(process.execPath, [CLI, ...args], {
             env: { ...process.env, SAFEBOX_PASSWORD: undefined, SAFEBOX_NEW_PASSWORD: undefined, ...env },
