@@ -24,8 +24,7 @@
     "build": "npm run typecheck && node esbuild.config.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && npm run test:run",
-    "test:run": "node --import ./test/support/register.mjs --test \"test/**/*.test.ts\"",
-    "style": "node scripts/restyle.mjs"
+    "test:run": "node --import ./test/support/register.mjs --test \"test/**/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -386,7 +386,6 @@ While working on the code, keep the dev dependencies installed (`npm install`):
 ```bash
 npm test          # typecheck, build dist/safebox.js, all tests
 npm run test:run  # all tests without building (the CLI tests use the last build)
-npm run style     # code style, --check only reports
 ```
 
 `build.cmd` / `build.sh` removes them again at the end.
