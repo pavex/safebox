@@ -2,42 +2,17 @@ import { readFile, stat } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { SafeboxError, SafeboxFile } from '../src'
 import type { SafeboxProfile } from '../src'
-import { CliError } from './CliError'
-import { canPrompt, promptHidden, readStdin } from './Prompt'
+import { ExitCode } from './types/ExitCode'
+import { CliError } from './Cli/CliError'
+import { Passwords } from './Cli/Passwords'
+import { canPrompt, promptHidden, readStdin } from './Cli/Prompt'
+import { USAGE } from './Cli/Usage'
 
 
-// Command line front end of the library. Passwords never come as arguments:
-// --password-file, the SAFEBOX_PASSWORD variable, or a hidden prompt, in that
-// order. Data (values, names, info) goes to stdout, messages to stderr.
-
-const SHORT_PASSWORD = 12
-const USAGE_EXIT = 2
-
-const USAGE = `safebox - one encrypted file with named secrets
-
-Usage:
-  safebox create <file> [--profile standard|recommended|high] [--force]
-  safebox info <file>
-  safebox list <file>
-  safebox get <file> <NAME>
-  safebox set <file> <NAME> [--from-file <path>]
-  safebox delete <file> <NAME>
-  safebox passwd <file> [--profile standard|recommended|high]
-
-Password (in this order):
-  --password-file <path>   first line of the file
-  SAFEBOX_PASSWORD         environment variable
-  hidden prompt            when running in a terminal
-  passwd takes the new one from --new-password-file, SAFEBOX_NEW_PASSWORD or a prompt.
-
-Value for set (in this order):
-  --from-file <path>       whole file as is, e.g. a PEM key
-  stdin                    when piped, one trailing newline removed
-  hidden prompt            when running in a terminal
-
-Secret names: letters, digits and _, not starting with a digit.
-get prints the value to stdout: mind terminal history, logs and redirection.
-`
+// Command line front end of the library; it uses only the public API in
+// ../src/index.ts. One Cli instance runs one command. Data (values, names,
+// info) goes to stdout, messages to stderr. Where passwords come from is in
+// Cli/Passwords.ts.
 
 const OPTIONS = {
     'profile': { type: 'string' },
@@ -50,68 +25,187 @@ const OPTIONS = {
 } as const
 
 
-type Values = {
-    profile?: string
-    force?: boolean
-    'from-file'?: string
-    'password-file'?: string
-    'new-password-file'?: string
-}
+// Options a command can take (help and version work everywhere).
+type Option = 'profile' | 'force' | 'from-file' | 'password-file' | 'new-password-file'
 
 
 interface Command {
-    // Names of the positional arguments after the command.
+    // Names of the positional arguments after the command name.
     args: string[]
-    options: (keyof Values)[]
-    run(args: string[], values: Values): Promise<void>
+    options: Option[]
+    run(args: string[]): Promise<void>
 }
 
 
-const COMMANDS: Record<string, Command> = {
-    create: { args: ['file'], options: ['profile', 'force', 'password-file'], run: create },
-    info: { args: ['file'], options: [], run: info },
-    list: { args: ['file'], options: ['password-file'], run: list },
-    get: { args: ['file', 'NAME'], options: ['password-file'], run: get },
-    set: { args: ['file', 'NAME'], options: ['from-file', 'password-file'], run: set },
-    delete: { args: ['file', 'NAME'], options: ['password-file'], run: remove },
-    passwd: { args: ['file'], options: ['profile', 'password-file', 'new-password-file'], run: passwd }
-}
+/** The safebox command line tool. */
+export class Cli {
+
+    private version: string
+    private values: Partial<Record<Option, string | boolean>> = {}
+    private passwords = new Passwords()
 
 
-/** Runs the CLI with the given arguments (without node and script) and returns the exit code. */
-export async function runCli(argv: string[], version: string): Promise<number> {
-    try {
-        const { values, positionals } = parse(argv)
-        if (values.version) {
-            process.stdout.write(`${version}\n`)
-            return 0
+    constructor(version: string) {
+        this.version = version
+    }
+
+
+    /** Runs one command (arguments without node and the script) and returns the exit code. */
+    async run(argv: string[]): Promise<ExitCode> {
+        try {
+            const { values, positionals } = parse(argv)
+            if (values.version) {
+                process.stdout.write(`${this.version}\n`)
+                return ExitCode.Success
+            }
+            const [name, ...args] = positionals
+            if (values.help || name === undefined || name === 'help') {
+                process.stdout.write(USAGE)
+                return name === undefined && !values.help ? ExitCode.Usage : ExitCode.Success
+            }
+            const command = this.command(name, args, Object.keys(values))
+            this.values = values
+            this.passwords = new Passwords(values['password-file'], values['new-password-file'])
+            await command.run(args)
+            return ExitCode.Success
         }
-        const [name, ...args] = positionals
-        if (values.help || name === undefined || name === 'help') {
-            process.stdout.write(USAGE)
-            return name === undefined && !values.help ? USAGE_EXIT : 0
+        catch (error) {
+            const known = error instanceof CliError || error instanceof SafeboxError
+            process.stderr.write(`safebox: ${known ? error.message : String((error as Error)?.message ?? error)}\n`)
+            return error instanceof CliError ? error.exitCode : ExitCode.Error
         }
-        if (!Object.hasOwn(COMMANDS, name)) {
-            throw new CliError(`Unknown command "${name}". Run safebox --help.`, USAGE_EXIT)
+    }
+
+
+    // Finds the command and checks its arguments and options.
+    private command(name: string, args: string[], options: string[]): Command {
+        const commands = this.commands()
+        if (!Object.hasOwn(commands, name)) {
+            throw new CliError(`Unknown command "${name}". Run safebox --help.`, ExitCode.Usage)
         }
-        const command = COMMANDS[name]
+        const command = commands[name]
         if (args.length !== command.args.length) {
-            const expected = command.args.map(arg => `<${arg}>`).join(' ')
-            throw new CliError(`Usage: safebox ${name} ${expected}`, USAGE_EXIT)
+            throw new CliError(`Usage: safebox ${name} ${command.args.map(arg => `<${arg}>`).join(' ')}`, ExitCode.Usage)
         }
-        for (const option of Object.keys(values)) {
-            if (option !== 'help' && option !== 'version' && !command.options.includes(option as keyof Values)) {
-                throw new CliError(`${name} does not take --${option}.`, USAGE_EXIT)
+        for (const option of options) {
+            if (option !== 'help' && option !== 'version' && !command.options.includes(option as Option)) {
+                throw new CliError(`${name} does not take --${option}.`, ExitCode.Usage)
             }
         }
-        await command.run(args, values)
-        return 0
+        return command
     }
-    catch (error) {
-        const exitCode = error instanceof CliError ? error.exitCode : 1
-        const message = error instanceof CliError || error instanceof SafeboxError ? error.message : String((error as Error)?.message ?? error)
-        process.stderr.write(`safebox: ${message}\n`)
-        return exitCode
+
+
+    private commands(): Record<string, Command> {
+        return {
+            create: { args: ['file'], options: ['profile', 'force', 'password-file'], run: ([file]) => this.create(file) },
+            info: { args: ['file'], options: [], run: ([file]) => this.info(file) },
+            list: { args: ['file'], options: ['password-file'], run: ([file]) => this.list(file) },
+            get: { args: ['file', 'NAME'], options: ['password-file'], run: ([file, name]) => this.get(file, name) },
+            set: { args: ['file', 'NAME'], options: ['from-file', 'password-file'], run: ([file, name]) => this.set(file, name) },
+            delete: { args: ['file', 'NAME'], options: ['password-file'], run: ([file, name]) => this.delete(file, name) },
+            passwd: { args: ['file'], options: ['profile', 'password-file', 'new-password-file'], run: ([file]) => this.passwd(file) }
+        }
+    }
+
+
+    private async create(file: string): Promise<void> {
+        if (!this.values.force && await exists(file)) {
+            throw new CliError(`${file} already exists; use --force to replace it.`)
+        }
+        const box = new SafeboxFile(file).create({ profile: this.profile() })
+        await box.save(await this.passwords.forCreate())
+        note(`Created ${file}.`)
+    }
+
+
+    private async info(file: string): Promise<void> {
+        const header = await new SafeboxFile(file).info()
+        const { N, r, p } = header.params
+        process.stdout.write([
+            `file: ${file}`,
+            `format: ${header.version}`,
+            `kdf: scrypt N=${N} r=${r} p=${p} (${header.profile ?? 'custom'})`,
+            'cipher: AES-256-GCM',
+            `size: ${header.size} bytes`
+        ].join('\n') + '\n')
+    }
+
+
+    private async list(file: string): Promise<void> {
+        const box = await this.load(file)
+        for (const name of box.keys()) {
+            process.stdout.write(`${name}\n`)
+        }
+    }
+
+
+    private async get(file: string, name: string): Promise<void> {
+        const value = (await this.load(file)).get(name)
+        process.stdout.write(process.stdout.isTTY ? `${value}\n` : value)
+    }
+
+
+    // The password is checked before the value is asked for, so a typo does not
+    // waste a long paste.
+    private async set(file: string, name: string): Promise<void> {
+        const box = await this.load(file)
+        const existed = box.has(name)
+        box.set(name, await this.readValue(name))
+        await box.save(await this.passwords.current())
+        note(`${existed ? 'Updated' : 'Added'} ${name}.`)
+    }
+
+
+    private async delete(file: string, name: string): Promise<void> {
+        const box = await this.load(file)
+        if (!box.delete(name)) {
+            throw new CliError(`No secret named ${name}.`)
+        }
+        await box.save(await this.passwords.current())
+        note(`Deleted ${name}.`)
+    }
+
+
+    private async passwd(file: string): Promise<void> {
+        const box = await this.load(file)
+        const profile = this.profile()
+        await box.save(await this.passwords.forChange(), { profile })
+        note(profile === undefined ? 'Password changed.' : `Password changed, profile ${profile}.`)
+    }
+
+
+    private async load(file: string): Promise<SafeboxFile> {
+        if (!await exists(file)) {
+            throw new CliError(`${file} does not exist; create it with: safebox create ${file}`)
+        }
+        return new SafeboxFile(file).load(await this.passwords.current())
+    }
+
+
+    // Value for set: --from-file as is, piped stdin without one trailing newline, or a prompt.
+    private async readValue(name: string): Promise<string> {
+        const file = this.values['from-file']
+        if (typeof file === 'string') {
+            return readFile(file, 'utf8')
+        }
+        if (!process.stdin.isTTY) {
+            return (await readStdin()).replace(/\r?\n$/, '')
+        }
+        if (!canPrompt()) {
+            throw new CliError('No value: pipe it in, use --from-file, or run in a terminal.')
+        }
+        const value = await promptHidden(`Value of ${name}: `)
+        if (value === '') {
+            throw new CliError('The value cannot be empty; use --from-file for an empty value.')
+        }
+        return value
+    }
+
+
+    // The --profile value; the library checks that it exists.
+    private profile(): SafeboxProfile | undefined {
+        return this.values.profile as SafeboxProfile | undefined
     }
 }
 
@@ -121,156 +215,8 @@ function parse(argv: string[]) {
         return parseArgs({ args: argv, options: OPTIONS, allowPositionals: true, strict: true })
     }
     catch (error) {
-        throw new CliError(`${(error as Error).message} Run safebox --help.`, USAGE_EXIT)
+        throw new CliError(`${(error as Error).message} Run safebox --help.`, ExitCode.Usage)
     }
-}
-
-
-async function create([file]: string[], values: Values): Promise<void> {
-    if (!values.force && await exists(file)) {
-        throw new CliError(`${file} already exists; use --force to replace it.`)
-    }
-    const box = new SafeboxFile(file).create({ profile: values.profile as SafeboxProfile | undefined })
-    const password = await newPassword(values['password-file'], 'SAFEBOX_PASSWORD', 'Password')
-    await box.save(password)
-    note(`Created ${file}.`)
-}
-
-
-async function info([file]: string[]): Promise<void> {
-    const header = await new SafeboxFile(file).info()
-    const { N, r, p } = header.params
-    const profile = header.profile === undefined ? 'custom' : header.profile
-    process.stdout.write([
-        `file: ${file}`,
-        `format: ${header.version}`,
-        `kdf: scrypt N=${N} r=${r} p=${p} (${profile})`,
-        `cipher: AES-256-GCM`,
-        `size: ${header.size} bytes`
-    ].join('\n') + '\n')
-}
-
-
-async function list([file]: string[], values: Values): Promise<void> {
-    const box = await openBox(file, values)
-    for (const name of box.keys()) {
-        process.stdout.write(`${name}\n`)
-    }
-}
-
-
-async function get([file, name]: string[], values: Values): Promise<void> {
-    const box = await openBox(file, values)
-    const value = box.get(name)
-    process.stdout.write(process.stdout.isTTY ? `${value}\n` : value)
-}
-
-
-// The password is checked before the value is asked for, so a typo does not
-// waste a long paste.
-async function set([file, name]: string[], values: Values): Promise<void> {
-    const box = await openBox(file, values)
-    const existed = box.has(name)
-    box.set(name, await readValue(name, values['from-file']))
-    await box.save(await currentPassword(values, true))
-    note(`${existed ? 'Updated' : 'Added'} ${name}.`)
-}
-
-
-async function remove([file, name]: string[], values: Values): Promise<void> {
-    const box = await openBox(file, values)
-    if (!box.delete(name)) {
-        throw new CliError(`No secret named ${name}.`)
-    }
-    await box.save(await currentPassword(values, true))
-    note(`Deleted ${name}.`)
-}
-
-
-async function passwd([file]: string[], values: Values): Promise<void> {
-    const box = await openBox(file, values)
-    const password = await newPassword(values['new-password-file'], 'SAFEBOX_NEW_PASSWORD', 'New password')
-    await box.save(password, { profile: values.profile as SafeboxProfile | undefined })
-    note(values.profile === undefined ? 'Password changed.' : `Password changed, profile ${values.profile}.`)
-}
-
-
-// The password typed for opening is remembered for the save that follows in the
-// same command, so the user types it once.
-let rememberedPassword: string | undefined
-
-
-async function openBox(file: string, values: Values): Promise<SafeboxFile> {
-    if (!await exists(file)) {
-        throw new CliError(`${file} does not exist; create it with: safebox create ${file}`)
-    }
-    return new SafeboxFile(file).load(await currentPassword(values, false))
-}
-
-
-async function currentPassword(values: Values, again: boolean): Promise<string> {
-    if (again && rememberedPassword !== undefined) {
-        return rememberedPassword
-    }
-    const password = await passwordFromFileOrEnv(values['password-file'], 'SAFEBOX_PASSWORD')
-        ?? await promptPassword('Password: ', 'SAFEBOX_PASSWORD')
-    rememberedPassword = password
-    return password
-}
-
-
-async function newPassword(file: string | undefined, variable: string, label: string): Promise<string> {
-    let password = await passwordFromFileOrEnv(file, variable)
-    if (password === undefined) {
-        password = await promptPassword(`${label}: `, variable)
-        if (await promptHidden(`Repeat ${label.toLowerCase()}: `) !== password) {
-            throw new CliError('The passwords do not match.')
-        }
-    }
-    if (Array.from(password).length < SHORT_PASSWORD) {
-        note(`Warning: the password is shorter than ${SHORT_PASSWORD} characters.`)
-    }
-    return password
-}
-
-
-async function passwordFromFileOrEnv(file: string | undefined, variable: string): Promise<string | undefined> {
-    if (file !== undefined) {
-        const password = (await readFile(file, 'utf8')).split(/\r?\n/, 1)[0]
-        if (password === '') {
-            throw new CliError(`The first line of ${file} is empty.`)
-        }
-        return password
-    }
-    const fromEnv = process.env[variable]
-    return fromEnv === undefined || fromEnv === '' ? undefined : fromEnv
-}
-
-
-async function promptPassword(question: string, variable: string): Promise<string> {
-    if (!canPrompt()) {
-        throw new CliError(`No password: run in a terminal, or use --password-file or ${variable}.`)
-    }
-    const password = await promptHidden(question)
-    if (password === '') {
-        throw new CliError('The password cannot be empty.')
-    }
-    return password
-}
-
-
-async function readValue(name: string, file: string | undefined): Promise<string> {
-    if (file !== undefined) {
-        return readFile(file, 'utf8')
-    }
-    if (!process.stdin.isTTY) {
-        return (await readStdin()).replace(/\r?\n$/, '')
-    }
-    const value = await promptHidden(`Value of ${name}: `)
-    if (value === '') {
-        throw new CliError('The value cannot be empty; use --from-file for an empty value.')
-    }
-    return value
 }
 
 

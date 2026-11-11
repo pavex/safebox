@@ -6,7 +6,7 @@ import { SafeboxProfile } from '../types/SafeboxProfile'
 import { SafeboxError } from './SafeboxError'
 
 
-// Binary layout, integers big-endian (SPECIFICATION.md, section File format):
+// Binary layout, integers big-endian (README.md, section File format):
 //
 //   0  magic "SBOX"   4      18  salt  16
 //   4  version = 1    1      34  IV    12

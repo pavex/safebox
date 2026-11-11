@@ -1,4 +1,5 @@
 import { CliError } from './CliError'
+import { ExitCode } from '../types/ExitCode'
 
 
 // Hidden input reads the terminal in raw mode and interprets the keys itself.
@@ -19,7 +20,7 @@ export function canPrompt(): boolean {
 }
 
 
-/** Asks on stderr and reads a line without echoing it. Ctrl+C cancels with exit code 130. */
+/** Asks on stderr and reads a line without echoing it. Ctrl+C cancels (ExitCode.Cancelled). */
 export function promptHidden(question: string): Promise<string> {
     if (!canPrompt()) {
         return Promise.reject(new CliError('Hidden input needs an interactive terminal.'))
@@ -39,7 +40,7 @@ export function promptHidden(question: string): Promise<string> {
             value = result.value
             if (result.cancelled) {
                 finish()
-                reject(new CliError('Cancelled.', 130))
+                reject(new CliError('Cancelled.', ExitCode.Cancelled))
             }
             else if (result.done) {
                 finish()

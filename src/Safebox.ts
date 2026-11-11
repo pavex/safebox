@@ -16,7 +16,7 @@ import { SafeboxError } from './Safebox/SafeboxError'
 // encrypted bytes live is up to a subclass (SafeboxFile, SafeboxBuffer), which
 // implements read() and write(). The password is never kept: load() and save()
 // each take it, so changing the password is a save() with the new one.
-// Crypto and layout: Safebox/Envelope.ts and SPECIFICATION.md.
+// Crypto and layout: Safebox/Envelope.ts and README.md (Reference).
 
 const PLACEHOLDER = /\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 

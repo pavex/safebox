@@ -17,7 +17,6 @@
     "src",
     "dist/safebox.js",
     "README.md",
-    "SPECIFICATION.md",
     "LICENSE"
   ],
   "scripts": {

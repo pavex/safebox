@@ -1,10 +1,13 @@
+import { ExitCode } from '../types/ExitCode'
+
+
 /** Error the CLI reports as a plain message, with the process exit code. */
 export class CliError extends Error {
 
-    readonly exitCode: number
+    readonly exitCode: ExitCode
 
 
-    constructor(message: string, exitCode = 1) {
+    constructor(message: string, exitCode = ExitCode.Error) {
         super(message)
         this.name = 'CliError'
         this.exitCode = exitCode

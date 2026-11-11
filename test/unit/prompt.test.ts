@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { applyKeys } from '../../cli/Prompt'
+import { applyKeys } from '../../cli/Cli/Prompt'
 
 
 test('a pasted password arrives in one chunk', () => {

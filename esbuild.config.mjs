@@ -15,7 +15,7 @@ const shared = {
 // The CLI is one self-contained file: copy dist/safebox.js anywhere and run it.
 await build({
     ...shared,
-    entryPoints: ['cli/main.ts'],
+    entryPoints: ['cli/index.ts'],
     outfile: 'dist/safebox.js',
     banner: { js: '#!/usr/bin/env node' },
     define: { SAFEBOX_VERSION: JSON.stringify(pkg.version) }
