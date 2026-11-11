@@ -23,7 +23,8 @@
   "scripts": {
     "build": "npm run typecheck && node esbuild.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test test/*.test.mjs dist-test/*.test.mjs",
+    "test": "npm run build && npm run test:run",
+    "test:run": "node --test test/*.test.mjs dist-test/*.test.mjs",
     "style": "node scripts/restyle.mjs"
   },
   "devDependencies": {

@@ -17,12 +17,14 @@ Requires Node.js 22 or newer.
 ## CLI
 
 ```bash
-npm install
-npm run build
+build.cmd        # Windows; build.sh on Linux and macOS
 node dist/safebox.js --help
 ```
 
-`dist/safebox.js` is self-contained: copy it anywhere and run it with `node`.
+The build script installs the dev dependencies, builds, runs the tests and
+removes `node_modules` and `package-lock.json` again, so nothing has to be
+kept installed. `dist/safebox.js` is self-contained: copy it anywhere and run
+it with `node`.
 
 ```bash
 safebox create app.safebox                 # asks for a password twice
@@ -133,10 +135,14 @@ writers at once (the last save wins). Details in
 
 ## Development
 
+While working on the code, keep the dev dependencies installed (`npm install`):
+
 ```bash
 npm test          # typecheck, build, unit tests (test/unit) and CLI tests (test/cli.test.mjs)
 npm run style     # code style, --check only reports
 ```
+
+`build.cmd` / `build.sh` removes them again at the end.
 
 ## License
 
