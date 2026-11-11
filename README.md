@@ -33,7 +33,8 @@ secrets are gone**: there is no recovery and no back door.
 ## Getting the CLI
 
 ```bash
-build.cmd        # Windows; build.sh on Linux and macOS
+build.cmd   # Windows
+build.sh    # Linux and macOS
 ```
 
 The build script installs the dev dependencies, builds, runs the tests and
