@@ -115,13 +115,14 @@ Writing:
 1. A temporary file `.<name>.<random>.tmp` is created in the target directory
    with mode `0600` (POSIX) and exclusive create.
 2. It is written and flushed (`fsync`).
-3. It is renamed over the target. On Windows the rename is retried a few times
-   when another process holds the target for a moment.
-4. The directory is flushed where the platform supports it.
-5. On failure the temporary file is removed.
+3. It is renamed over the target.
+4. On failure the temporary file is removed.
 
-The directory must be writable. The replaced file does not keep its old owner
-or mode. Atomic rename does not protect against every power loss.
+A crash or a full disk during a save leaves the previous file intact, and a
+reader sees either the old or the new file. The directory must be writable.
+The replaced file does not keep its old owner or mode. The directory itself
+is not flushed, so a power loss right after a save may bring back the
+previous version.
 
 ## 8. CLI
 
