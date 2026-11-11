@@ -61,28 +61,63 @@ or a TypeScript runtime (esbuild, tsx, Vite); Node's built-in type stripping
 cannot run it directly.
 
 ```ts
-import { Safebox } from './safebox'
+import { SafeboxFile } from './safebox'
 
-const box = await Safebox.open('app.safebox', process.env.SAFEBOX_PASSWORD ?? '')
+const box = await new SafeboxFile('app.safebox').load(process.env.SAFEBOX_PASSWORD ?? '')
 const imapPassword = box.get('IMAP_PASSWORD')
+```
+
+Creating one in code:
+
+```ts
+const box = new SafeboxFile('app.safebox').create({ profile: SafeboxProfile.Recommended })
+box.set('IMAP_PASSWORD', 'secret')
+await box.save(password)
 ```
 
 The library never reads `process.env` or any configuration by itself: where
 the password comes from is the app's decision.
 
+### Classes
+
+- **`Safebox`**: abstract base. Holds the secrets in memory, encrypts and
+  decrypts. Where the encrypted bytes live is up to a subclass, which
+  implements two protected methods: `read(): Promise<Uint8Array>` and
+  `write(data: Buffer): Promise<void>`.
+- **`SafeboxFile`**: stored in a file, `new SafeboxFile(path)`. The usual choice.
+- **`SafeboxBuffer`**: stored in memory as bytes, `new SafeboxBuffer(bytes?)`,
+  the result of `save()` in `data`. For a safebox embedded in a bundle or kept
+  in a database.
+
+A storage of your own, e.g. a database row:
+
+```ts
+class SafeboxRow extends Safebox {
+
+    protected async read() {
+        return db.get('SELECT data FROM secrets WHERE id = 1').data
+    }
+
+
+    protected async write(data: Buffer) {
+        db.run('UPDATE secrets SET data = ? WHERE id = 1', data)
+    }
+}
+```
+
 | Member | What it does |
 |---|---|
-| `Safebox.create({ profile? })` | Empty safebox in memory, profile `recommended` by default |
-| `Safebox.open(path, password)` | Reads and decrypts a file |
-| `Safebox.decrypt(bytes, password)` | Decrypts bytes (embedded, fetched) |
-| `Safebox.info(path)` | Header: format, scrypt parameters, profile, size; no password |
+| `create({ profile? })` | Starts an empty safebox in memory, profile `recommended` by default |
+| `load(password)` | Reads and decrypts; on failure the previous state stays |
+| `save(password, { profile? })` | Encrypts and stores; another password changes the password |
+| `info()` | Header: format, scrypt parameters, profile, size; no password |
 | `get(name)` / `has(name)` / `keys()` / `size` | Read secrets; `get` throws `MissingSecret` |
 | `set(name, value)` / `delete(name)` | Change secrets in memory |
 | `toObject()` | All secrets as a plain object, e.g. for a child process `env` |
 | `replace(template)` | Fills `{{NAME}}` and `${NAME}`; no escaping |
-| `save(path, password, { profile? })` | Encrypts and atomically replaces the file |
-| `encrypt(password, { profile? })` | Encrypts to bytes without writing |
-| `changed` / `profile` | Unsaved changes; current key derivation profile |
+| `loaded` / `changed` / `profile` | After `create` or `load`; unsaved changes; key derivation profile |
+
+`create`, `load`, `save` and `set` return the safebox, so calls chain.
 
 Errors are `SafeboxError` with a `code`:
 
@@ -93,6 +128,7 @@ Errors are `SafeboxError` with a `code`:
 | `DecryptFailed` | Wrong password, or the file was changed or damaged |
 | `MissingSecret` | `get` or `replace` of an unknown name |
 | `InvalidInput` | Bad name, value, password or profile, or a limit exceeded |
+| `InvalidState` | Used before `load` or `create`, or `create` on a loaded safebox |
 
 Secret names are letters, digits and `_`, not starting with a digit, at most
 128 characters. Values are strings up to 1 MiB, at most 10 000 secrets, the

@@ -9,5 +9,7 @@ export enum SafeboxErrorCode {
     /** No secret of the given name. */
     MissingSecret = 'missing_secret',
     /** Invalid password, secret name, value or option, or a size limit was exceeded. */
-    InvalidInput = 'invalid_input'
+    InvalidInput = 'invalid_input',
+    /** Used before load() or create(), or create() on a loaded safebox. */
+    InvalidState = 'invalid_state'
 }

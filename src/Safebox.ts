@@ -6,91 +6,118 @@ import { SafeboxProfile } from './types/SafeboxProfile'
 import { matchProfile, profileParams, readInfo, seal, unseal } from './Safebox/Envelope'
 import { deserialize, MAX_SECRETS, serialize, validateName, validateValue } from './Safebox/Payload'
 import { SafeboxError } from './Safebox/SafeboxError'
-import { readSafeboxFile, writeSafeboxFile } from './Safebox/SafeboxFile'
 
 
-// A safebox is one encrypted file with named string secrets. It travels with the
-// app (repository, deploy package), the password comes from somewhere else
-// (environment, prompt, admin), so the secrets never sit in plain text on disk.
+// A safebox is a set of named string secrets stored encrypted. It travels with
+// the app (repository, deploy package), the password comes from somewhere else
+// (environment, prompt, admin), so the secrets never sit in plain text.
 //
-// After open() everything is in memory. The password is not kept: save() asks
-// for it again, which also makes changing the password a plain save(). Crypto
-// and file layout are in Safebox/Envelope.ts and SPECIFICATION.md.
+// This class holds the secrets in memory and does the encryption; where the
+// encrypted bytes live is up to a subclass (SafeboxFile, SafeboxBuffer), which
+// implements read() and write(). The password is never kept: load() and save()
+// each take it, so changing the password is a save() with the new one.
+// Crypto and layout: Safebox/Envelope.ts and SPECIFICATION.md.
 
 const PLACEHOLDER = /\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 
 
-/** Named string secrets kept in one password-encrypted file. */
-export class Safebox {
+/** Named string secrets kept encrypted with a password. Subclasses decide where the bytes are stored. */
+export abstract class Safebox {
 
-    private secrets: Map<string, string>
-    private params: KdfParams
-    private dirty: boolean
+    private secrets = new Map<string, string>()
+    private params: KdfParams | undefined
+    private dirty = false
 
 
-    private constructor(secrets: Map<string, string>, params: KdfParams, dirty: boolean) {
-        this.secrets = secrets
-        this.params = params
-        this.dirty = dirty
+    /** Starts an empty safebox in memory; nothing is stored until save(). Throws if already loaded. */
+    create(options: SafeboxOptions = {}): this {
+        if (this.params !== undefined) {
+            throw new SafeboxError(SafeboxErrorCode.InvalidState, 'The safebox is already loaded.')
+        }
+        this.params = profileParams(options.profile ?? SafeboxProfile.Recommended)
+        this.secrets = new Map()
+        this.dirty = true
+        return this
     }
 
 
-    /** Creates an empty safebox in memory; nothing is written until save(). */
-    static create(options: SafeboxOptions = {}): Safebox {
-        return new Safebox(new Map(), profileParams(options.profile ?? SafeboxProfile.Recommended), true)
-    }
-
-
-    /** Reads and decrypts a safebox file. */
-    static async open(path: string, password: string): Promise<Safebox> {
-        return Safebox.decrypt(await readSafeboxFile(path), password)
-    }
-
-
-    /** Decrypts a safebox from bytes, e.g. one embedded in a bundle or fetched from storage. */
-    static async decrypt(data: Uint8Array, password: string): Promise<Safebox> {
-        const { plaintext, params } = await unseal(data, password)
+    /** Reads and decrypts the stored safebox. On failure the current state stays as it was. */
+    async load(password: string): Promise<this> {
+        const { plaintext, params } = await unseal(await this.read(), password)
         try {
-            return new Safebox(deserialize(plaintext), params, false)
+            this.secrets = deserialize(plaintext)
         }
         finally {
             plaintext.fill(0)
         }
+        this.params = params
+        this.dirty = false
+        return this
     }
 
 
-    /** Reads the header of a safebox file; needs no password. */
-    static async info(path: string): Promise<SafeboxInfo> {
-        return readInfo(await readSafeboxFile(path))
+    /**
+     * Encrypts the secrets and stores them. Fresh salt and IV every time. The
+     * profile option changes the key derivation strength, otherwise it is kept.
+     */
+    async save(password: string, options: SafeboxOptions = {}): Promise<this> {
+        const params = options.profile === undefined ? this.loadedParams() : profileParams(options.profile)
+        const plaintext = serialize(this.secrets)
+        let data: Buffer
+        try {
+            data = await seal(plaintext, password, params)
+        }
+        finally {
+            plaintext.fill(0)
+        }
+        await this.write(data)
+        this.params = params
+        this.dirty = false
+        return this
     }
 
 
-    /** True when there are changes since create(), open() or the last save(). */
+    /** Reads the header of the stored safebox; needs no password and does not load anything. */
+    async info(): Promise<SafeboxInfo> {
+        return readInfo(await this.read())
+    }
+
+
+    /** True after create() or a successful load(). */
+    get loaded(): boolean {
+        return this.params !== undefined
+    }
+
+
+    /** True when there are changes since create(), load() or the last save(). */
     get changed(): boolean {
         return this.dirty
     }
 
 
-    /** Key derivation profile the next save() uses by default, undefined for custom parameters. */
+    /** Key derivation profile the next save() uses, undefined for custom parameters or when not loaded. */
     get profile(): SafeboxProfile | undefined {
-        return matchProfile(this.params)
+        return this.params === undefined ? undefined : matchProfile(this.params)
     }
 
 
     /** Number of secrets. */
     get size(): number {
+        this.loadedParams()
         return this.secrets.size
     }
 
 
     /** Secret names, sorted. */
     keys(): string[] {
+        this.loadedParams()
         return [...this.secrets.keys()].sort()
     }
 
 
     /** Whether a secret exists. */
     has(name: string): boolean {
+        this.loadedParams()
         validateName(name)
         return this.secrets.has(name)
     }
@@ -98,6 +125,7 @@ export class Safebox {
 
     /** Returns a secret; throws MissingSecret if there is none of that name. */
     get(name: string): string {
+        this.loadedParams()
         validateName(name)
         const value = this.secrets.get(name)
         if (value === undefined) {
@@ -109,6 +137,7 @@ export class Safebox {
 
     /** Adds or replaces a secret in memory. */
     set(name: string, value: string): this {
+        this.loadedParams()
         validateName(name)
         validateValue(value)
         if (!this.secrets.has(name) && this.secrets.size >= MAX_SECRETS) {
@@ -122,6 +151,7 @@ export class Safebox {
 
     /** Removes a secret; returns whether it existed. */
     delete(name: string): boolean {
+        this.loadedParams()
         validateName(name)
         const existed = this.secrets.delete(name)
         this.dirty ||= existed
@@ -145,6 +175,7 @@ export class Safebox {
      * Throws MissingSecret listing every unknown name.
      */
     replace(template: string): string {
+        this.loadedParams()
         if (typeof template !== 'string') {
             throw new SafeboxError(SafeboxErrorCode.InvalidInput, 'The template must be a string.')
         }
@@ -165,27 +196,19 @@ export class Safebox {
     }
 
 
-    /** Encrypts to bytes without writing anything. Fresh salt and IV every call. */
-    async encrypt(password: string, options: SafeboxOptions = {}): Promise<Buffer> {
-        const params = options.profile === undefined ? this.params : profileParams(options.profile)
-        const plaintext = serialize(this.secrets)
-        try {
-            return await seal(plaintext, password, params)
-        }
-        finally {
-            plaintext.fill(0)
-        }
-    }
+    /** Returns the stored encrypted bytes; throws SafeboxError NotFound when there are none. */
+    protected abstract read(): Promise<Uint8Array>
 
 
-    /**
-     * Encrypts and atomically replaces the file. Saving with a different password
-     * changes the password; a profile option changes the key derivation strength.
-     */
-    async save(path: string, password: string, options: SafeboxOptions = {}): Promise<void> {
-        const params = options.profile === undefined ? this.params : profileParams(options.profile)
-        await writeSafeboxFile(path, await this.encrypt(password, options))
-        this.params = params
-        this.dirty = false
+    /** Replaces the stored encrypted bytes. */
+    protected abstract write(data: Buffer): Promise<void>
+
+
+    // Throws unless create() or load() has run; returns the current parameters.
+    private loadedParams(): KdfParams {
+        if (this.params === undefined) {
+            throw new SafeboxError(SafeboxErrorCode.InvalidState, 'The safebox is not loaded: call load() or create() first.')
+        }
+        return this.params
     }
 }

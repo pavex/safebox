@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto'
 import { open, rename, unlink } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { SafeboxErrorCode } from '../types/SafeboxErrorCode'
-import { MAX_FILE_SIZE } from './Envelope'
-import { SafeboxError } from './SafeboxError'
+import { MAX_FILE_SIZE } from '../Safebox/Envelope'
+import { SafeboxError } from '../Safebox/SafeboxError'
 
 
 // Writes go to a temporary file in the same directory, which is flushed and then
@@ -17,7 +17,7 @@ const RETRYABLE = new Set(['EPERM', 'EACCES', 'EBUSY'])
 
 
 /** Reads a safebox file, refusing anything that is not a regular file or is too large. */
-export async function readSafeboxFile(path: string): Promise<Buffer> {
+export async function readFileLimited(path: string): Promise<Buffer> {
     const handle = await open(path, 'r').catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') {
             throw new SafeboxError(SafeboxErrorCode.NotFound, `The safebox file does not exist: ${resolve(path)}`, { cause: error })
@@ -41,7 +41,7 @@ export async function readSafeboxFile(path: string): Promise<Buffer> {
 
 
 /** Replaces the file atomically. A new file gets mode 0600 on POSIX. */
-export async function writeSafeboxFile(path: string, data: Buffer): Promise<void> {
+export async function writeFileAtomic(path: string, data: Buffer): Promise<void> {
     const target = resolve(path)
     const directory = dirname(target)
     const temporary = join(directory, `.${basename(target)}.${randomBytes(6).toString('hex')}.tmp`)

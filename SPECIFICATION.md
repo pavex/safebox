@@ -13,11 +13,13 @@ password travels separately.
 ```text
 src/                      the library, copied into apps
   index.ts                public exports
-  Safebox.ts              the Safebox class
+  Safebox.ts              abstract base: secrets in memory, load, save
+  SafeboxFile.ts          Safebox stored in a file (the default)
+  SafeboxBuffer.ts        Safebox stored in memory as bytes
   Safebox/Envelope.ts     binary format, scrypt, AES-GCM
   Safebox/Payload.ts      JSON content, names, values, limits
-  Safebox/SafeboxFile.ts  reading and atomic writing of files
   Safebox/SafeboxError.ts error with a code
+  SafeboxFile/AtomicFile.ts  limited reading and atomic writing of files
   interfaces/, types/     KdfParams, SafeboxInfo, SafeboxOptions; enums
 cli/                      the CLI, bundled to dist/safebox.js
 test/                     unit tests (test/unit) and CLI tests
@@ -90,8 +92,14 @@ reading, so metadata can be added without a new version.
 
 ## 6. Behavior
 
-- `open()` and `decrypt()` either return a complete safebox or throw; nothing
-  is half-loaded.
+- `Safebox` is abstract. A subclass provides the storage through two protected
+  methods: `read()` returns the encrypted bytes (or throws `NotFound`),
+  `write(data)` replaces them. `SafeboxFile` and `SafeboxBuffer` are the
+  included ones.
+- An instance is usable after `create()` or `load()`; before that every
+  operation throws `InvalidState`, and so does `create()` on a loaded instance.
+- `load()` replaces the state only after reading, decryption and validation all
+  succeed; on failure the previous state stays.
 - The password is never stored in the instance. `save()` takes it again, so
   changing the password is a `save()` with the new one.
 - `save()` keeps the current profile unless a new one is given. On success it

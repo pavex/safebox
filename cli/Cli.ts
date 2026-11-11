@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
-import { Safebox, SafeboxError } from '../src'
+import { SafeboxError, SafeboxFile } from '../src'
 import type { SafeboxProfile } from '../src'
 import { CliError } from './CliError'
 import { canPrompt, promptHidden, readStdin } from './Prompt'
@@ -130,15 +130,15 @@ async function create([file]: string[], values: Values): Promise<void> {
     if (!values.force && await exists(file)) {
         throw new CliError(`${file} already exists; use --force to replace it.`)
     }
-    const box = Safebox.create({ profile: values.profile as SafeboxProfile | undefined })
+    const box = new SafeboxFile(file).create({ profile: values.profile as SafeboxProfile | undefined })
     const password = await newPassword(values['password-file'], 'SAFEBOX_PASSWORD', 'Password')
-    await box.save(file, password)
+    await box.save(password)
     note(`Created ${file}.`)
 }
 
 
 async function info([file]: string[]): Promise<void> {
-    const header = await Safebox.info(file)
+    const header = await new SafeboxFile(file).info()
     const { N, r, p } = header.params
     const profile = header.profile === undefined ? 'custom' : header.profile
     process.stdout.write([
@@ -172,7 +172,7 @@ async function set([file, name]: string[], values: Values): Promise<void> {
     const box = await openBox(file, values)
     const existed = box.has(name)
     box.set(name, await readValue(name, values['from-file']))
-    await box.save(file, await currentPassword(values, true))
+    await box.save(await currentPassword(values, true))
     note(`${existed ? 'Updated' : 'Added'} ${name}.`)
 }
 
@@ -182,7 +182,7 @@ async function remove([file, name]: string[], values: Values): Promise<void> {
     if (!box.delete(name)) {
         throw new CliError(`No secret named ${name}.`)
     }
-    await box.save(file, await currentPassword(values, true))
+    await box.save(await currentPassword(values, true))
     note(`Deleted ${name}.`)
 }
 
@@ -190,7 +190,7 @@ async function remove([file, name]: string[], values: Values): Promise<void> {
 async function passwd([file]: string[], values: Values): Promise<void> {
     const box = await openBox(file, values)
     const password = await newPassword(values['new-password-file'], 'SAFEBOX_NEW_PASSWORD', 'New password')
-    await box.save(file, password, { profile: values.profile as SafeboxProfile | undefined })
+    await box.save(password, { profile: values.profile as SafeboxProfile | undefined })
     note(values.profile === undefined ? 'Password changed.' : `Password changed, profile ${values.profile}.`)
 }
 
@@ -200,11 +200,11 @@ async function passwd([file]: string[], values: Values): Promise<void> {
 let rememberedPassword: string | undefined
 
 
-async function openBox(file: string, values: Values): Promise<Safebox> {
+async function openBox(file: string, values: Values): Promise<SafeboxFile> {
     if (!await exists(file)) {
         throw new CliError(`${file} does not exist; create it with: safebox create ${file}`)
     }
-    return Safebox.open(file, await currentPassword(values, false))
+    return new SafeboxFile(file).load(await currentPassword(values, false))
 }
 
 
