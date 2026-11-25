@@ -120,6 +120,10 @@ Asks for the current password, then the new one twice. The file is
 re-encrypted; the secrets stay. Then update the password wherever the app
 gets it.
 
+Anyone with the file and its password has the secrets. If that happens,
+changing the password is not enough: create a new safebox and replace the
+secrets in it.
+
 ### Where the CLI takes the password from
 
 The password is never a command line argument (it would end up in shell
